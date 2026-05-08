@@ -643,6 +643,7 @@
       const pageState = {};
       const filteredState = {};
       const wrapState = {};
+      const expandState = {};
       let filterDebounceTimer = null;
       const FILTER_DEBOUNCE_MS = 300;
 
@@ -741,6 +742,7 @@
           sortState[i] = { column: null, direction: "asc" };
           pageState[i] = 1;
           wrapState[i] = false;
+          expandState[i] = false;
         });
 
         renderFileMenu();
@@ -771,6 +773,7 @@
         Object.keys(pageState).forEach((k) => delete pageState[k]);
         Object.keys(filteredState).forEach((k) => delete filteredState[k]);
         Object.keys(wrapState).forEach((k) => delete wrapState[k]);
+        Object.keys(expandState).forEach((k) => delete expandState[k]);
       }
 
       // ─── JSON parsing ────────────────────────────────────────────────────────────
@@ -996,6 +999,54 @@
         });
       }
 
+      // ─── Expand helpers ──────────────────────────────────────────────────────────
+
+      function isFlatKeyValue(entry) {
+        return entry.headers.length === 2 && entry.headers[0] === "key" && entry.headers[1] === "value";
+      }
+
+      function expandFlatRows(rows) {
+        const subKeySet = new Set();
+        let hasNonObject = false;
+
+        rows.forEach(({ row }) => {
+          try {
+            const parsed = JSON.parse(row.value ?? "");
+            if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+              Object.keys(parsed).forEach((k) => subKeySet.add(k));
+            } else {
+              hasNonObject = true;
+            }
+          } catch {
+            hasNonObject = true;
+          }
+        });
+
+        const subKeys = [...subKeySet];
+        const headers = ["key", ...subKeys, ...(hasNonObject ? ["value"] : [])];
+
+        const expandedRows = rows.map(({ row, originalIndex }) => {
+          const newRow = { key: row.key };
+          let parsed = null;
+          try { parsed = JSON.parse(row.value ?? ""); } catch {}
+
+          if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+            subKeys.forEach((k) => {
+              const v = parsed[k];
+              newRow[k] = v === undefined || v === null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+            });
+            if (hasNonObject) newRow.value = "";
+          } else {
+            subKeys.forEach((k) => { newRow[k] = ""; });
+            if (hasNonObject) newRow.value = row.value ?? "";
+          }
+
+          return { row: newRow, originalIndex };
+        });
+
+        return { headers, rows: expandedRows };
+      }
+
       // ─── Rendering ────────────────────────────────────────────────────────────────
 
       function renderAllFileViews() {
@@ -1028,6 +1079,11 @@
 
         const sorted = sortRows(state.rows, sort.column, sort.direction);
 
+        const isExpanded = expandState[fileIndex] && isFlatKeyValue(entry);
+        const expanded = isExpanded ? expandFlatRows(sorted) : null;
+        const displayHeaders = isExpanded ? expanded.headers : entry.headers;
+        const displayRows = isExpanded ? expanded.rows : sorted;
+
         const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
         if (pageState[fileIndex] > totalPages) pageState[fileIndex] = totalPages;
         if (pageState[fileIndex] < 1) pageState[fileIndex] = 1;
@@ -1035,7 +1091,7 @@
 
         const startIndex = (currentPage - 1) * pageSize;
         const endIndex = Math.min(startIndex + pageSize, totalFiltered);
-        const pageRows = sorted.slice(startIndex, endIndex);
+        const pageRows = displayRows.slice(startIndex, endIndex);
 
         const card = document.createElement("div");
         card.className = "file-view-card";
@@ -1051,9 +1107,9 @@
         const statsSpan = document.createElement("span");
         statsSpan.className = "file-view-stats";
         if (state.isFiltered && totalFiltered !== totalRows) {
-          statsSpan.innerHTML = `<span class="filtered-label">${totalFiltered} of ${totalRows} rows</span> &nbsp;·&nbsp; ${entry.headers.length} columns`;
+          statsSpan.innerHTML = `<span class="filtered-label">${totalFiltered} of ${totalRows} rows</span> &nbsp;·&nbsp; ${displayHeaders.length} columns`;
         } else {
-          statsSpan.textContent = `${totalRows} rows · ${entry.headers.length} columns`;
+          statsSpan.textContent = `${totalRows} rows · ${displayHeaders.length} columns`;
         }
 
         const wrapBtn = document.createElement("button");
@@ -1063,12 +1119,27 @@
         wrapBtn.addEventListener("click", () => {
           wrapState[fileIndex] = !wrapState[fileIndex];
           const existing = document.getElementById(`file-view-${fileIndex}`);
-          if (existing) {
-            existing.replaceWith(buildFileViewCard(entry, fileIndex));
-          }
+          if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
         });
 
-        header.append(title, statsSpan, wrapBtn);
+        header.append(title, statsSpan);
+
+        if (isFlatKeyValue(entry)) {
+          const expandBtn = document.createElement("button");
+          expandBtn.className = "wrap-toggle" + (expandState[fileIndex] ? " active" : "");
+          expandBtn.type = "button";
+          expandBtn.textContent = "Expand values";
+          expandBtn.addEventListener("click", () => {
+            expandState[fileIndex] = !expandState[fileIndex];
+            sortState[fileIndex] = { column: null, direction: "asc" };
+            pageState[fileIndex] = 1;
+            const existing = document.getElementById(`file-view-${fileIndex}`);
+            if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
+          });
+          header.appendChild(expandBtn);
+        }
+
+        header.appendChild(wrapBtn);
         card.appendChild(header);
         card.id = `file-view-${fileIndex}`;
 
@@ -1103,30 +1174,33 @@
         });
         headerRow.appendChild(rownumTh);
 
-        entry.headers.forEach((header) => {
+        displayHeaders.forEach((colHeader) => {
           const th = document.createElement("th");
-          th.className = "sortable";
-          if (sort.column === header) {
-            th.classList.add(sort.direction === "asc" ? "sort-asc" : "sort-desc");
+          const isOriginalCol = !isExpanded || colHeader === "key" || colHeader === "value";
+          if (isOriginalCol) {
+            th.className = "sortable";
+            if (sort.column === colHeader) {
+              th.classList.add(sort.direction === "asc" ? "sort-asc" : "sort-desc");
+            }
           }
           const labelSpan = document.createElement("span");
-          labelSpan.textContent = header;
+          labelSpan.textContent = colHeader;
           const sortIconSpan = document.createElement("span");
           sortIconSpan.className = "sort-icon";
           th.append(labelSpan, sortIconSpan);
-          th.addEventListener("click", () => {
-            if (sort.column === header) {
-              sort.direction = sort.direction === "asc" ? "desc" : "asc";
-            } else {
-              sort.column = header;
-              sort.direction = "asc";
-            }
-            pageState[fileIndex] = 1;
-            const existing = document.getElementById(`file-view-${fileIndex}`);
-            if (existing) {
-              existing.replaceWith(buildFileViewCard(entry, fileIndex));
-            }
-          });
+          if (isOriginalCol) {
+            th.addEventListener("click", () => {
+              if (sort.column === colHeader) {
+                sort.direction = sort.direction === "asc" ? "desc" : "asc";
+              } else {
+                sort.column = colHeader;
+                sort.direction = "asc";
+              }
+              pageState[fileIndex] = 1;
+              const existing = document.getElementById(`file-view-${fileIndex}`);
+              if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
+            });
+          }
           headerRow.appendChild(th);
         });
 
@@ -1139,7 +1213,7 @@
           const emptyRow = document.createElement("tr");
           emptyRow.className = "empty-row";
           const emptyTd = document.createElement("td");
-          emptyTd.colSpan = entry.headers.length + 1;
+          emptyTd.colSpan = displayHeaders.length + 1;
           emptyTd.textContent = state.isFiltered
             ? "No rows match the current filter."
             : "This file has no data rows.";
@@ -1154,12 +1228,12 @@
             rownumTd.textContent = originalIndex + 2;
             tr.appendChild(rownumTd);
 
-            entry.headers.forEach((colHeader, colIndex) => {
+            displayHeaders.forEach((colHeader, colIndex) => {
               const td = document.createElement("td");
               const value = String(row[colHeader] ?? "");
               td.textContent = value;
               if (wrapState[fileIndex]) td.classList.add("cell-wrap");
-              if (state.matchedCells.has(`${originalIndex},${colIndex}`)) {
+              if (!isExpanded && state.matchedCells.has(`${originalIndex},${colIndex}`)) {
                 td.classList.add("cell-match");
               }
               tr.appendChild(td);
