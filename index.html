@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CSV &amp; XLSX Viewer</title>
+    <style>
+      :root {
+        --bg: #220408;
+        --panel: #35070c;
+        --panel-2: #4a0b12;
+        --panel-3: #2b060a;
+        --text: #fff4f5;
+        --muted: #ffb4ba;
+        --accent: #e31321;
+        --accent-2: #ff4d58;
+        --border: #8e1018;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        padding: 40px 24px;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      .container {
+        max-width: 600px;
+        margin: 0 auto;
+        text-align: center;
+      }
+
+      h1 {
+        font-size: 2rem;
+        margin: 0 0 8px;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        margin: 0 0 40px;
+        font-size: 1.05rem;
+      }
+
+      .tools {
+        display: grid;
+        gap: 16px;
+      }
+
+      a.tool {
+        display: block;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 28px 24px;
+        text-decoration: none;
+        color: var(--text);
+        transition: border-color 0.2s, background 0.2s;
+      }
+
+      a.tool:hover {
+        border-color: var(--accent-2);
+        background: var(--panel-2);
+      }
+
+      a.tool h2 {
+        margin: 0 0 8px;
+        font-size: 1.3rem;
+        color: var(--accent-2);
+      }
+
+      a.tool p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.95rem;
+        line-height: 1.5;
+      }
+
+      .footer {
+        margin-top: 48px;
+        color: var(--muted);
+        font-size: 0.85rem;
+        line-height: 1.6;
+      }
+
+      .footer a {
+        color: var(--text);
+        text-decoration: none;
+      }
+
+      .footer a:hover {
+        color: var(--accent-2);
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>CSV &amp; XLSX Viewer</h1>
+      <p class="subtitle">Browser-based viewer for CSV and Excel files with inline row filtering. No upload, no server — everything runs locally.</p>
+
+      <div class="tools">
+        <a class="tool" href="csv-viewer.html">
+          <h2>CSV Viewer</h2>
+          <p>Load CSV files and browse them as a full table. Supports custom delimiters, sortable columns, and inline cell highlighting.</p>
+        </a>
+
+        <a class="tool" href="xlsx-viewer.html">
+          <h2>XLSX Viewer</h2>
+          <p>Load Excel files (.xlsx, .xls, .xlsm, .ods). Parses all sheets individually with the same filtering and table view.</p>
+        </a>
+      </div>
+
+      <div class="footer">
+        <p>Open source under <a href="LICENSE">MIT License</a></p>
+        <p>Also check out <a href="https://github.com/ExpandYourself/csv-xlsx-search" target="_blank" rel="noopener noreferrer">CSV &amp; XLSX Search</a></p>
+      </div>
+    </div>
+  </body>
+</html>

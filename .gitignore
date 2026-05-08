@@ -1,0 +1,22 @@
+# Branded iPSUM versions (hosted on company domain)
+*_ipsum.html
+
+# Test data
+*.csv
+*.xlsx
+*.xls
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Claude Code local settings
+.claude/
