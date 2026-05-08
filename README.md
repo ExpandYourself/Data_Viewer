@@ -21,7 +21,9 @@ View Excel files (.xlsx, .xls, .xlsm, .xlsb, .ods). Powered by [SheetJS](https:/
 View JSON files as a table.
 
 - Supports **array of objects** (`[{...}, {...}]`) and **JSON Lines / NDJSON** (one object per line)
-- Nested objects are serialized as strings in the table
+- Supports **keyed objects** (`{"id": {...}, ...}`) — shown as key/value rows
+- **Expand values** — for keyed objects, switches to an interactive tree view: each key is collapsible, nested objects expand recursively into child rows
+- Filter works across all tree nodes including collapsed ones — matching entries are auto-expanded
 
 ## What it does
 

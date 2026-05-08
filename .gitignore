@@ -3,8 +3,10 @@
 
 # Test data
 *.csv
+*.tsv
 *.xlsx
 *.xls
+*.json
 
 # OS files
 .DS_Store
