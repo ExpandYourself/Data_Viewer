@@ -478,6 +478,30 @@
         border-color: #ffe082;
       }
 
+      .tree-toggle {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--muted);
+        padding: 0;
+        margin-right: 4px;
+        font-size: 0.7rem;
+        line-height: 1;
+        vertical-align: middle;
+        width: 14px;
+        display: inline-block;
+        text-align: center;
+      }
+
+      .tree-toggle:hover {
+        color: var(--accent-2);
+      }
+
+      .tree-leaf-spacer {
+        display: inline-block;
+        width: 18px;
+      }
+
       .page-footer {
         margin-top: 8px;
         text-align: center;
@@ -644,6 +668,7 @@
       const filteredState = {};
       const wrapState = {};
       const expandState = {};
+      const treeExpandState = {};
       let filterDebounceTimer = null;
       const FILTER_DEBOUNCE_MS = 300;
 
@@ -743,6 +768,7 @@
           pageState[i] = 1;
           wrapState[i] = false;
           expandState[i] = false;
+          treeExpandState[i] = {};
         });
 
         renderFileMenu();
@@ -774,6 +800,7 @@
         Object.keys(filteredState).forEach((k) => delete filteredState[k]);
         Object.keys(wrapState).forEach((k) => delete wrapState[k]);
         Object.keys(expandState).forEach((k) => delete expandState[k]);
+        Object.keys(treeExpandState).forEach((k) => delete treeExpandState[k]);
       }
 
       // ─── JSON parsing ────────────────────────────────────────────────────────────
@@ -1005,49 +1032,112 @@
         return entry.headers.length === 2 && entry.headers[0] === "key" && entry.headers[1] === "value";
       }
 
-      function expandFlatRows(rows) {
-        const subKeySet = new Set();
-        let hasNonObject = false;
-
-        rows.forEach(({ row }) => {
-          try {
-            const parsed = JSON.parse(row.value ?? "");
-            if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-              Object.keys(parsed).forEach((k) => subKeySet.add(k));
-            } else {
-              hasNonObject = true;
-            }
-          } catch {
-            hasNonObject = true;
-          }
-        });
-
-        const subKeys = [...subKeySet];
-        const headers = ["key", ...subKeys, ...(hasNonObject ? ["value"] : [])];
-
-        const expandedRows = rows.map(({ row, originalIndex }) => {
-          const newRow = { key: row.key };
-          let parsed = null;
-          try { parsed = JSON.parse(row.value ?? ""); } catch {}
-
-          if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-            subKeys.forEach((k) => {
-              const v = parsed[k];
-              newRow[k] = v === undefined || v === null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
-            });
-            if (hasNonObject) newRow.value = "";
-          } else {
-            subKeys.forEach((k) => { newRow[k] = ""; });
-            if (hasNonObject) newRow.value = row.value ?? "";
-          }
-
-          return { row: newRow, originalIndex };
-        });
-
-        return { headers, rows: expandedRows };
+      function buildTreeNode(key, valueStr, originalIndex, depth) {
+        let parsed = null;
+        try {
+          const p = JSON.parse(valueStr);
+          if (typeof p === "object" && p !== null && !Array.isArray(p)) parsed = p;
+        } catch {}
+        if (parsed !== null) {
+          const children = Object.entries(parsed).map(([k, v]) => {
+            const childVal = v === null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+            return buildTreeNode(k, childVal, null, depth + 1);
+          });
+          return { key, value: null, children, originalIndex, depth };
+        }
+        return { key, value: valueStr, children: null, originalIndex, depth };
       }
 
-      // ─── Rendering ────────────────────────────────────────────────────────────────
+      function buildTreeNodes(rows) {
+        return rows.map(({ row, originalIndex }) =>
+          buildTreeNode(row.key, row.value ?? "", originalIndex, 0)
+        );
+      }
+
+      function nodeHasMatch(node, matchFn) {
+        if (matchFn(node.key) || matchFn(node.value ?? "")) return true;
+        return node.children ? node.children.some((c) => nodeHasMatch(c, matchFn)) : false;
+      }
+
+      function buildMatchFn() {
+        const query = filterInput.value.trim();
+        if (!query) return null;
+        const caseSensitive = caseSensitiveCheckbox.checked;
+        const matchType = matchTypeSelect.value;
+        const wildcardSyntax = wildcardSyntaxSelect.value;
+        const termOperator = termOperatorSelect.value;
+        const terms = parseTerms(query, caseSensitive);
+        if (!terms.length) return null;
+        const isOr = termOperator === "or";
+        return (str) => {
+          const results = terms.map((term) => valueSingleTermMatch(str, term, matchType, caseSensitive, wildcardSyntax));
+          return isOr ? results.some(Boolean) : results.every(Boolean);
+        };
+      }
+
+      function renderTreeRows(tbody, node, path, fileIndex, entry, matchFn, filterActive) {
+        const treeExpand = treeExpandState[fileIndex];
+        const userExpanded = !!treeExpand[path];
+        const hasMatchingChild = filterActive && node.children
+          ? node.children.some((c) => nodeHasMatch(c, matchFn))
+          : false;
+        const isExpanded = userExpanded || (filterActive && hasMatchingChild);
+        const keyMatch = filterActive && matchFn(node.key);
+        const valMatch = filterActive && node.value !== null && matchFn(node.value);
+
+        const tr = document.createElement("tr");
+
+        const numTd = document.createElement("td");
+        numTd.className = "col-rownum";
+        if (node.depth === 0 && node.originalIndex !== null) {
+          numTd.textContent = node.originalIndex + 2;
+        }
+        tr.appendChild(numTd);
+
+        const keyTd = document.createElement("td");
+        keyTd.style.paddingLeft = `${8 + node.depth * 20}px`;
+        if (node.children) {
+          const toggle = document.createElement("button");
+          toggle.className = "tree-toggle";
+          toggle.textContent = isExpanded ? "\u25BC" : "\u25BA";
+          toggle.addEventListener("click", () => {
+            treeExpand[path] = !userExpanded;
+            const existing = document.getElementById(`file-view-${fileIndex}`);
+            if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
+          });
+          keyTd.appendChild(toggle);
+        } else {
+          const spacer = document.createElement("span");
+          spacer.className = "tree-leaf-spacer";
+          keyTd.appendChild(spacer);
+        }
+        const keySpan = document.createElement("span");
+        if (keyMatch) keySpan.classList.add("cell-match");
+        keySpan.textContent = node.key;
+        keyTd.appendChild(keySpan);
+        tr.appendChild(keyTd);
+
+        const valTd = document.createElement("td");
+        if (node.children === null) {
+          if (wrapState[fileIndex]) valTd.classList.add("cell-wrap");
+          if (valMatch) valTd.classList.add("cell-match");
+          valTd.textContent = node.value ?? "";
+        }
+        tr.appendChild(valTd);
+
+        tbody.appendChild(tr);
+
+        if (isExpanded && node.children) {
+          node.children.forEach((child, ci) => {
+            const childPath = `${path}-${ci}`;
+            if (!filterActive || nodeHasMatch(child, matchFn)) {
+              renderTreeRows(tbody, child, childPath, fileIndex, entry, matchFn, filterActive);
+            }
+          });
+        }
+      }
+
+            // ─── Rendering ────────────────────────────────────────────────────────────────
 
       function renderAllFileViews() {
         viewerContainer.innerHTML = "";
@@ -1077,12 +1167,134 @@
         const totalFiltered = state.rows.length;
         const totalRows = entry.rows.length;
 
-        const sorted = sortRows(state.rows, sort.column, sort.direction);
+        // ── Tree mode ──────────────────────────────────────────────────────────
+        if (expandState[fileIndex] && isFlatKeyValue(entry)) {
+          const matchFn = buildMatchFn();
+          const filterActive = matchFn !== null;
+          const allNodes = buildTreeNodes(entry.rows);
+          const visibleNodes = filterActive ? allNodes.filter((n) => nodeHasMatch(n, matchFn)) : allNodes;
+          const totalTreeRows = allNodes.length;
+          const totalTreeVisible = visibleNodes.length;
 
-        const isExpanded = expandState[fileIndex] && isFlatKeyValue(entry);
-        const expanded = isExpanded ? expandFlatRows(sorted) : null;
-        const displayHeaders = isExpanded ? expanded.headers : entry.headers;
-        const displayRows = isExpanded ? expanded.rows : sorted;
+          const treeTotalPages = Math.max(1, Math.ceil(totalTreeVisible / pageSize));
+          if (pageState[fileIndex] > treeTotalPages) pageState[fileIndex] = treeTotalPages;
+          if (pageState[fileIndex] < 1) pageState[fileIndex] = 1;
+          const treePage = pageState[fileIndex];
+          const treeStart = (treePage - 1) * pageSize;
+          const treeEnd = Math.min(treeStart + pageSize, totalTreeVisible);
+          const pageNodes = visibleNodes.slice(treeStart, treeEnd);
+
+          const card = document.createElement("div");
+          card.className = "file-view-card";
+          card.id = `file-view-${fileIndex}`;
+
+          const treeHeader = document.createElement("div");
+          treeHeader.className = "file-view-header";
+          const treeTitle = document.createElement("span");
+          treeTitle.className = "file-view-title";
+          treeTitle.textContent = entry.fileName;
+          const treeStats = document.createElement("span");
+          treeStats.className = "file-view-stats";
+          if (filterActive && totalTreeVisible !== totalTreeRows) {
+            treeStats.innerHTML = `<span class="filtered-label">${totalTreeVisible} of ${totalTreeRows} rows</span>`;
+          } else {
+            treeStats.textContent = `${totalTreeRows} rows`;
+          }
+          const expandBtn = document.createElement("button");
+          expandBtn.className = "wrap-toggle active";
+          expandBtn.type = "button";
+          expandBtn.textContent = "Expand values";
+          expandBtn.addEventListener("click", () => {
+            expandState[fileIndex] = false;
+            treeExpandState[fileIndex] = {};
+            pageState[fileIndex] = 1;
+            const existing = document.getElementById(`file-view-${fileIndex}`);
+            if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
+          });
+          const treeWrapBtn = document.createElement("button");
+          treeWrapBtn.className = "wrap-toggle" + (wrapState[fileIndex] ? " active" : "");
+          treeWrapBtn.type = "button";
+          treeWrapBtn.textContent = "Wrap text";
+          treeWrapBtn.addEventListener("click", () => {
+            wrapState[fileIndex] = !wrapState[fileIndex];
+            const existing = document.getElementById(`file-view-${fileIndex}`);
+            if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
+          });
+          treeHeader.append(treeTitle, treeStats, expandBtn, treeWrapBtn);
+          card.appendChild(treeHeader);
+
+          const treeTableContainer = document.createElement("div");
+          treeTableContainer.className = "table-container";
+          const treeTable = document.createElement("table");
+          const treeThead = document.createElement("thead");
+          const treeHeadRow = document.createElement("tr");
+          ["#", "key", "value"].forEach((label, ci) => {
+            const th = document.createElement("th");
+            if (ci === 0) th.className = "col-rownum";
+            th.textContent = label;
+            treeHeadRow.appendChild(th);
+          });
+          treeThead.appendChild(treeHeadRow);
+          treeTable.appendChild(treeThead);
+
+          const treeTbody = document.createElement("tbody");
+          if (pageNodes.length === 0) {
+            const emptyRow = document.createElement("tr");
+            emptyRow.className = "empty-row";
+            const emptyTd = document.createElement("td");
+            emptyTd.colSpan = 3;
+            emptyTd.textContent = filterActive ? "No rows match the current filter." : "This file has no data rows.";
+            emptyRow.appendChild(emptyTd);
+            treeTbody.appendChild(emptyRow);
+          } else {
+            pageNodes.forEach((node, ni) => {
+              renderTreeRows(treeTbody, node, String(treeStart + ni), fileIndex, entry, matchFn, filterActive);
+            });
+          }
+          treeTable.appendChild(treeTbody);
+          treeTableContainer.appendChild(treeTable);
+          card.appendChild(treeTableContainer);
+
+          const treePag = document.createElement("div");
+          treePag.className = "pagination";
+          const treeLG = document.createElement("div");
+          treeLG.className = "pagination-group";
+          const treePrev = document.createElement("button");
+          treePrev.type = "button";
+          treePrev.textContent = "Previous";
+          treePrev.disabled = treePage <= 1;
+          treePrev.addEventListener("click", () => {
+            pageState[fileIndex] = Math.max(1, pageState[fileIndex] - 1);
+            const existing = document.getElementById(`file-view-${fileIndex}`);
+            if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
+          });
+          const treeNext = document.createElement("button");
+          treeNext.type = "button";
+          treeNext.textContent = "Next";
+          treeNext.disabled = treePage >= treeTotalPages;
+          treeNext.addEventListener("click", () => {
+            pageState[fileIndex] = Math.min(treeTotalPages, pageState[fileIndex] + 1);
+            const existing = document.getElementById(`file-view-${fileIndex}`);
+            if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
+          });
+          const treePageInfo = document.createElement("span");
+          treePageInfo.className = "pagination-info";
+          treePageInfo.textContent = `Page ${treePage} / ${treeTotalPages}`;
+          treeLG.append(treePrev, treeNext, treePageInfo);
+          const treeRG = document.createElement("div");
+          treeRG.className = "pagination-group";
+          const treeRange = document.createElement("span");
+          treeRange.className = "pagination-info";
+          treeRange.textContent = `${totalTreeVisible > 0 ? treeStart + 1 : 0}–${treeEnd} of ${totalTreeVisible}`;
+          treeRG.appendChild(treeRange);
+          treePag.append(treeLG, treeRG);
+          card.appendChild(treePag);
+
+          return card;
+        }
+
+        // ── Normal table mode ──────────────────────────────────────────────────
+        const sorted = sortRows(state.rows, sort.column, sort.direction);
 
         const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
         if (pageState[fileIndex] > totalPages) pageState[fileIndex] = totalPages;
@@ -1091,12 +1303,11 @@
 
         const startIndex = (currentPage - 1) * pageSize;
         const endIndex = Math.min(startIndex + pageSize, totalFiltered);
-        const pageRows = displayRows.slice(startIndex, endIndex);
+        const pageRows = sorted.slice(startIndex, endIndex);
 
         const card = document.createElement("div");
         card.className = "file-view-card";
 
-        // Header
         const header = document.createElement("div");
         header.className = "file-view-header";
 
@@ -1107,9 +1318,9 @@
         const statsSpan = document.createElement("span");
         statsSpan.className = "file-view-stats";
         if (state.isFiltered && totalFiltered !== totalRows) {
-          statsSpan.innerHTML = `<span class="filtered-label">${totalFiltered} of ${totalRows} rows</span> &nbsp;·&nbsp; ${displayHeaders.length} columns`;
+          statsSpan.innerHTML = `<span class="filtered-label">${totalFiltered} of ${totalRows} rows</span>  ·  ${entry.headers.length} columns`;
         } else {
-          statsSpan.textContent = `${totalRows} rows · ${displayHeaders.length} columns`;
+          statsSpan.textContent = `${totalRows} rows · ${entry.headers.length} columns`;
         }
 
         const wrapBtn = document.createElement("button");
@@ -1126,11 +1337,11 @@
 
         if (isFlatKeyValue(entry)) {
           const expandBtn = document.createElement("button");
-          expandBtn.className = "wrap-toggle" + (expandState[fileIndex] ? " active" : "");
+          expandBtn.className = "wrap-toggle";
           expandBtn.type = "button";
           expandBtn.textContent = "Expand values";
           expandBtn.addEventListener("click", () => {
-            expandState[fileIndex] = !expandState[fileIndex];
+            expandState[fileIndex] = true;
             sortState[fileIndex] = { column: null, direction: "asc" };
             pageState[fileIndex] = 1;
             const existing = document.getElementById(`file-view-${fileIndex}`);
@@ -1143,7 +1354,6 @@
         card.appendChild(header);
         card.id = `file-view-${fileIndex}`;
 
-        // Table
         const tableContainer = document.createElement("div");
         tableContainer.className = "table-container";
 
@@ -1174,33 +1384,28 @@
         });
         headerRow.appendChild(rownumTh);
 
-        displayHeaders.forEach((colHeader) => {
+        entry.headers.forEach((colHeader) => {
           const th = document.createElement("th");
-          const isOriginalCol = !isExpanded || colHeader === "key" || colHeader === "value";
-          if (isOriginalCol) {
-            th.className = "sortable";
-            if (sort.column === colHeader) {
-              th.classList.add(sort.direction === "asc" ? "sort-asc" : "sort-desc");
-            }
+          th.className = "sortable";
+          if (sort.column === colHeader) {
+            th.classList.add(sort.direction === "asc" ? "sort-asc" : "sort-desc");
           }
           const labelSpan = document.createElement("span");
           labelSpan.textContent = colHeader;
           const sortIconSpan = document.createElement("span");
           sortIconSpan.className = "sort-icon";
           th.append(labelSpan, sortIconSpan);
-          if (isOriginalCol) {
-            th.addEventListener("click", () => {
-              if (sort.column === colHeader) {
-                sort.direction = sort.direction === "asc" ? "desc" : "asc";
-              } else {
-                sort.column = colHeader;
-                sort.direction = "asc";
-              }
-              pageState[fileIndex] = 1;
-              const existing = document.getElementById(`file-view-${fileIndex}`);
-              if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
-            });
-          }
+          th.addEventListener("click", () => {
+            if (sort.column === colHeader) {
+              sort.direction = sort.direction === "asc" ? "desc" : "asc";
+            } else {
+              sort.column = colHeader;
+              sort.direction = "asc";
+            }
+            pageState[fileIndex] = 1;
+            const existing = document.getElementById(`file-view-${fileIndex}`);
+            if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
+          });
           headerRow.appendChild(th);
         });
 
@@ -1213,7 +1418,7 @@
           const emptyRow = document.createElement("tr");
           emptyRow.className = "empty-row";
           const emptyTd = document.createElement("td");
-          emptyTd.colSpan = displayHeaders.length + 1;
+          emptyTd.colSpan = entry.headers.length + 1;
           emptyTd.textContent = state.isFiltered
             ? "No rows match the current filter."
             : "This file has no data rows.";
@@ -1228,12 +1433,12 @@
             rownumTd.textContent = originalIndex + 2;
             tr.appendChild(rownumTd);
 
-            displayHeaders.forEach((colHeader, colIndex) => {
+            entry.headers.forEach((colHeader, colIndex) => {
               const td = document.createElement("td");
               const value = String(row[colHeader] ?? "");
               td.textContent = value;
               if (wrapState[fileIndex]) td.classList.add("cell-wrap");
-              if (!isExpanded && state.matchedCells.has(`${originalIndex},${colIndex}`)) {
+              if (state.matchedCells.has(`${originalIndex},${colIndex}`)) {
                 td.classList.add("cell-match");
               }
               tr.appendChild(td);
@@ -1247,7 +1452,6 @@
         tableContainer.appendChild(table);
         card.appendChild(tableContainer);
 
-        // Pagination
         const pagination = document.createElement("div");
         pagination.className = "pagination";
 
@@ -1294,7 +1498,7 @@
         return card;
       }
 
-      // ─── UI helpers ───────────────────────────────────────────────────────────────
+            // ─── UI helpers ───────────────────────────────────────────────────────────────
 
       function renderFileMenu() {
         if (loadedEntries.length === 0) {
