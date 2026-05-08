@@ -776,20 +776,46 @@
       // ─── JSON parsing ────────────────────────────────────────────────────────────
 
       function parseJson(text) {
-        const trimmed = text.trim();
+        const trimmed = text.trim().replace(/^﻿/, "");
 
         let records;
 
         if (trimmed.startsWith("[")) {
           records = JSON.parse(trimmed);
           if (!Array.isArray(records)) throw new Error("Expected a JSON array.");
+        } else if (trimmed.startsWith("{")) {
+          let rootObj = null;
+          try {
+            rootObj = JSON.parse(trimmed);
+          } catch {
+            // not a single object — fall through to JSON Lines
+          }
+
+          if (rootObj !== null) {
+            const entries = Object.entries(rootObj);
+            const allObjectValues = entries.every(
+              ([, v]) => typeof v === "object" && v !== null && !Array.isArray(v)
+            );
+            if (allObjectValues && entries.length > 0) {
+              // {"id1": {...}, "id2": {...}} → keyed records
+              records = entries.map(([k, v]) => ({ __key: k, ...v }));
+            } else {
+              // flat / mixed object → key / value table
+              records = entries.map(([k, v]) => ({
+                key: k,
+                value: v === null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v),
+              }));
+            }
+          } else {
+            // JSON Lines / NDJSON
+            records = trimmed
+              .split("\n")
+              .map((line) => line.trim())
+              .filter((line) => line.length > 0)
+              .map((line) => JSON.parse(line));
+          }
         } else {
-          // JSON Lines / NDJSON: one object per line
-          records = trimmed
-            .split("\n")
-            .map((line) => line.trim())
-            .filter((line) => line.length > 0)
-            .map((line) => JSON.parse(line));
+          throw new Error("Unrecognized format. Expected a JSON array ([...]), object ({...}), or JSON Lines.");
         }
 
         if (records.length === 0) return { headers: [], rows: [] };
