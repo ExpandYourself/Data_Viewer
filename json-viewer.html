@@ -1048,9 +1048,9 @@
         return { key, value: valueStr, children: null, originalIndex, depth };
       }
 
-      function buildTreeNodes(rows) {
-        return rows.map(({ row, originalIndex }) =>
-          buildTreeNode(row.key, row.value ?? "", originalIndex, 0)
+      function buildTreeNodes(rawRows) {
+        return rawRows.map((row, i) =>
+          buildTreeNode(row.key, row.value ?? "", i, 0)
         );
       }
 
