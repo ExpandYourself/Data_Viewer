@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CSV &amp; XLSX Viewer</title>
+    <title>CSV / TSV / XLSX / JSON Viewer</title>
     <style>
       :root {
         --bg: #220408;
@@ -98,18 +98,23 @@
   </head>
   <body>
     <div class="container">
-      <h1>CSV &amp; XLSX Viewer</h1>
-      <p class="subtitle">Browser-based viewer for CSV and Excel files with inline row filtering. No upload, no server — everything runs locally.</p>
+      <h1>Data Viewer</h1>
+      <p class="subtitle">Browser-based viewer for CSV, TSV, Excel, and JSON files with inline row filtering. No upload, no server — everything runs locally.</p>
 
       <div class="tools">
         <a class="tool" href="csv-viewer.html">
-          <h2>CSV Viewer</h2>
-          <p>Load CSV files and browse them as a full table. Supports custom delimiters, sortable columns, and inline cell highlighting.</p>
+          <h2>CSV / TSV Viewer</h2>
+          <p>Load CSV or TSV files and browse them as a full table. Supports comma, semicolon, and tab delimiters with auto-detection for .tsv files.</p>
         </a>
 
         <a class="tool" href="xlsx-viewer.html">
           <h2>XLSX Viewer</h2>
           <p>Load Excel files (.xlsx, .xls, .xlsm, .ods). Parses all sheets individually with the same filtering and table view.</p>
+        </a>
+
+        <a class="tool" href="json-viewer.html">
+          <h2>JSON Viewer</h2>
+          <p>Load JSON files (array of objects) or JSON Lines / NDJSON. Nested objects are serialized as strings in the table view.</p>
         </a>
       </div>
 

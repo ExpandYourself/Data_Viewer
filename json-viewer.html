@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CSV / TSV Viewer</title>
+    <title>JSON Viewer</title>
     <style>
       :root {
         --bg: #220408;
@@ -515,8 +515,8 @@
   <body>
     <main class="app">
       <section class="card">
-        <h1>CSV / TSV Viewer</h1>
-        <p>Load one or more CSV or TSV files to browse and filter rows inline.</p>
+        <h1>JSON Viewer</h1>
+        <p>Load JSON files (array of objects or JSON Lines / NDJSON) to browse and filter rows inline.</p>
       </section>
 
       <section class="card controls">
@@ -532,7 +532,7 @@
           </label>
           <button id="filterButton" type="button">Filter</button>
           <button id="clearFilterButton" type="button">Clear filter</button>
-          <input id="fileInput" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" multiple />
+          <input id="fileInput" type="file" accept=".json,.ndjson,.jsonl,application/json" multiple />
         </div>
 
         <div class="control-row options">
@@ -594,13 +594,6 @@
 
         <div class="menu-footer">
           <div class="option-group">
-            <select id="delimiterSelect" aria-label="Delimiter">
-              <option value=",">Delimiter: Comma (,)</option>
-              <option value=";" selected>Delimiter: Semicolon (;)</option>
-              <option value="&#9;">Delimiter: Tab (TSV)</option>
-            </select>
-          </div>
-          <div class="option-group">
             <select id="pageSizeSelect" aria-label="Rows per page">
               <option value="50">50 rows per page</option>
               <option value="100" selected>100 rows per page</option>
@@ -626,7 +619,6 @@
       const fileInput = document.getElementById("fileInput");
       const filterInput = document.getElementById("filterInput");
       const filterButton = document.getElementById("filterButton");
-      const delimiterSelect = document.getElementById("delimiterSelect");
       const fileListEl = document.getElementById("fileList");
       const statusBar = document.getElementById("statusBar");
       const matchTypeSelect = document.getElementById("matchTypeSelect");
@@ -643,9 +635,9 @@
       const viewerContainer = document.getElementById("viewerContainer");
 
       const FOOTER_COPYRIGHT = "Open source under MIT License.";
-      const FOOTER_LINKS = [{ label: "CSV & XLSX Search", href: "https://github.com/ExpandYourself/csv-xlsx-search" }];
+      const FOOTER_LINKS = [{ label: "CSV / TSV Viewer", href: "csv-viewer.html" }, { label: "XLSX Viewer", href: "xlsx-viewer.html" }, { label: "CSV & XLSX Search", href: "https://github.com/ExpandYourself/csv-xlsx-search" }];
 
-      const loadedFiles = [];
+      const loadedEntries = [];
       let parseErrorMessage = "";
       const sortState = {};
       const pageState = {};
@@ -688,25 +680,22 @@
         if (autoFilterCheckbox.checked) runFilter();
       });
 
-      delimiterSelect.addEventListener("change", async () => {
-        if (loadedFiles.length > 0) await reloadLoadedFiles();
-      });
 
       pageSizeSelect.addEventListener("change", () => {
-        loadedFiles.forEach((_, i) => {
+        loadedEntries.forEach((_, i) => {
           pageState[i] = 1;
         });
         renderAllFileViews();
       });
 
       selectAllButton.addEventListener("click", () => {
-        loadedFiles.forEach((f) => (f.selected = true));
+        loadedEntries.forEach((f) => (f.selected = true));
         renderFileMenu();
         applyFilterAndRender();
       });
 
       selectNoneButton.addEventListener("click", () => {
-        loadedFiles.forEach((f) => (f.selected = false));
+        loadedEntries.forEach((f) => (f.selected = false));
         renderFileMenu();
         applyFilterAndRender();
       });
@@ -728,19 +717,15 @@
       // ─── File loading ────────────────────────────────────────────────────────────
 
       async function loadFiles(files) {
-        loadedFiles.length = 0;
+        loadedEntries.length = 0;
         parseErrorMessage = "";
         clearState();
-
-        const allTsv = files.length > 0 && files.every((f) => f.name.toLowerCase().endsWith(".tsv"));
-        if (allTsv) delimiterSelect.value = "\t";
 
         for (const file of files) {
           try {
             const text = await file.text();
-            const delimiter = file.name.toLowerCase().endsWith(".tsv") ? "\t" : delimiterSelect.value;
-            const parsed = parseCsv(text, delimiter);
-            loadedFiles.push({
+            const parsed = parseJson(text);
+            loadedEntries.push({
               file,
               fileName: file.name,
               selected: true,
@@ -752,7 +737,7 @@
           }
         }
 
-        loadedFiles.forEach((_, i) => {
+        loadedEntries.forEach((_, i) => {
           sortState[i] = { column: null, direction: "asc" };
           pageState[i] = 1;
           wrapState[i] = false;
@@ -764,10 +749,10 @@
 
       async function reloadLoadedFiles() {
         parseErrorMessage = "";
-        for (const [i, entry] of loadedFiles.entries()) {
+        for (const [i, entry] of loadedEntries.entries()) {
           try {
             const text = await entry.file.text();
-            const parsed = parseCsv(text, delimiterSelect.value);
+            const parsed = parseJson(text);
             entry.headers = parsed.headers;
             entry.rows = parsed.rows;
             pageState[i] = 1;
@@ -788,62 +773,51 @@
         Object.keys(wrapState).forEach((k) => delete wrapState[k]);
       }
 
-      // ─── CSV parsing ─────────────────────────────────────────────────────────────
+      // ─── JSON parsing ────────────────────────────────────────────────────────────
 
-      function parseCsv(csvText, delimiter) {
-        const normalized = csvText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-        const lines = normalized.split("\n").filter((l) => l.length > 0);
+      function parseJson(text) {
+        const trimmed = text.trim();
 
-        if (lines.length === 0) return { headers: [], rows: [] };
+        let records;
 
-        const headers = splitCsvLine(lines[0], delimiter).map((h, i) => {
-          const trimmed = h.trim();
-          return trimmed.length > 0 ? trimmed : `Column ${i + 1}`;
+        if (trimmed.startsWith("[")) {
+          records = JSON.parse(trimmed);
+          if (!Array.isArray(records)) throw new Error("Expected a JSON array.");
+        } else {
+          // JSON Lines / NDJSON: one object per line
+          records = trimmed
+            .split("\n")
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+            .map((line) => JSON.parse(line));
+        }
+
+        if (records.length === 0) return { headers: [], rows: [] };
+
+        const headerSet = new Set();
+        records.forEach((rec) => {
+          if (typeof rec === "object" && rec !== null) {
+            Object.keys(rec).forEach((k) => headerSet.add(k));
+          }
+        });
+        const headers = [...headerSet];
+
+        const rows = records.map((rec) => {
+          const row = {};
+          headers.forEach((h) => {
+            const val = rec[h];
+            if (val === undefined || val === null) {
+              row[h] = "";
+            } else if (typeof val === "object") {
+              row[h] = JSON.stringify(val);
+            } else {
+              row[h] = String(val);
+            }
+          });
+          return row;
         });
 
-        const rows = [];
-        for (let li = 1; li < lines.length; li++) {
-          const cells = splitCsvLine(lines[li], delimiter);
-          const row = {};
-          for (let ci = 0; ci < headers.length; ci++) {
-            row[headers[ci]] = cells[ci] ?? "";
-          }
-          rows.push(row);
-        }
-
         return { headers, rows };
-      }
-
-      function splitCsvLine(line, delimiter) {
-        const values = [];
-        let current = "";
-        let inQuotes = false;
-
-        for (let i = 0; i < line.length; i++) {
-          const ch = line[i];
-          const next = line[i + 1];
-
-          if (ch === '"') {
-            if (inQuotes && next === '"') {
-              current += '"';
-              i++;
-            } else {
-              inQuotes = !inQuotes;
-            }
-            continue;
-          }
-
-          if (ch === delimiter && !inQuotes) {
-            values.push(current.trim());
-            current = "";
-            continue;
-          }
-
-          current += ch;
-        }
-
-        values.push(current.trim());
-        return values;
       }
 
       // ─── Filter logic ─────────────────────────────────────────────────────────────
@@ -865,7 +839,7 @@
 
         let totalVisible = 0;
 
-        loadedFiles.forEach((entry, i) => {
+        loadedEntries.forEach((entry, i) => {
           if (!entry.selected) {
             filteredState[i] = null;
             return;
@@ -1001,10 +975,10 @@
       function renderAllFileViews() {
         viewerContainer.innerHTML = "";
 
-        const selectedFiles = loadedFiles.filter((f, i) => f.selected && filteredState[i] !== null);
+        const selectedFiles = loadedEntries.filter((f, i) => f.selected && filteredState[i] !== null);
 
         if (selectedFiles.length === 0) {
-          if (loadedFiles.length > 0) {
+          if (loadedEntries.length > 0) {
             const card = document.createElement("div");
             card.className = "card";
             card.innerHTML = '<p class="hint">No files selected. Use the file list above to select files.</p>';
@@ -1013,7 +987,7 @@
           return;
         }
 
-        loadedFiles.forEach((entry, fileIndex) => {
+        loadedEntries.forEach((entry, fileIndex) => {
           if (!entry.selected || !filteredState[fileIndex]) return;
           viewerContainer.appendChild(buildFileViewCard(entry, fileIndex));
         });
@@ -1223,13 +1197,13 @@
       // ─── UI helpers ───────────────────────────────────────────────────────────────
 
       function renderFileMenu() {
-        if (loadedFiles.length === 0) {
+        if (loadedEntries.length === 0) {
           fileListEl.innerHTML = '<div class="hint">No files loaded yet.</div>';
           return;
         }
 
         fileListEl.innerHTML = "";
-        loadedFiles.forEach((entry, i) => {
+        loadedEntries.forEach((entry, i) => {
           const label = document.createElement("label");
           label.className = "file-item";
 
@@ -1237,7 +1211,7 @@
           cb.type = "checkbox";
           cb.checked = entry.selected;
           cb.addEventListener("change", () => {
-            loadedFiles[i].selected = cb.checked;
+            loadedEntries[i].selected = cb.checked;
             applyFilterAndRender();
           });
 
@@ -1255,8 +1229,8 @@
       }
 
       function updateStatusBar(totalVisible, terms) {
-        const loadedCount = loadedFiles.length;
-        const selectedCount = loadedFiles.filter((f) => f.selected).length;
+        const loadedCount = loadedEntries.length;
+        const selectedCount = loadedEntries.filter((f) => f.selected).length;
         const isFiltered = terms.length > 0;
         const matchType = matchTypeSelect.value;
         const termOperator = termOperatorSelect.value;
@@ -1327,7 +1301,7 @@
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `csv-viewer-export-${Date.now()}.csv`;
+        link.download = `json-viewer-export-${Date.now()}.csv`;
         document.body.appendChild(link);
         link.click();
         link.remove();

@@ -1,15 +1,15 @@
-# CSV & XLSX Viewer
+# CSV / TSV / XLSX / JSON Viewer
 
-Browser-based viewer for CSV and Excel files with inline row filtering. No server, no upload — everything runs locally in your browser.
+Browser-based viewer for CSV, TSV, Excel, and JSON files with inline row filtering. No server, no upload — everything runs locally in your browser.
 
-<!-- ![CSV Viewer](screenshots/csv-viewer.png) -->
+<!-- ![Viewer](screenshots/viewer.png) -->
 
 ## Tools
 
-### CSV Viewer
-View CSV files as a full table with inline row filtering.
+### CSV / TSV Viewer
+View CSV and TSV files as a full table with inline row filtering.
 
-- **Configurable delimiter** — comma or semicolon, switchable at any time
+- **Configurable delimiter** — comma, semicolon, or tab; auto-detects tab for `.tsv` files
 
 ### XLSX Viewer
 View Excel files (.xlsx, .xls, .xlsm, .xlsb, .ods). Powered by [SheetJS](https://sheetjs.com/).
@@ -17,11 +17,17 @@ View Excel files (.xlsx, .xls, .xlsm, .xlsb, .ods). Powered by [SheetJS](https:/
 - Automatically parses **all sheets** in each workbook
 - Each sheet appears as a separate entry in the file list
 
+### JSON Viewer
+View JSON files as a table.
+
+- Supports **array of objects** (`[{...}, {...}]`) and **JSON Lines / NDJSON** (one object per line)
+- Nested objects are serialized as strings in the table
+
 ## What it does
 
 Load one or more files and view them as a full table. Enter filter terms to narrow down the visible rows — matching cells are highlighted inline. Clear the filter to see all rows again.
 
-This is the viewer companion to [CSV & XLSX Search](https://github.com/ExpandYourself/csv-xlsx-search). The key difference: instead of listing individual cell matches, the viewer shows complete rows in their original table structure.
+These are the viewer companions to [CSV & XLSX Search](https://github.com/ExpandYourself/csv-xlsx-search). The key difference: instead of listing individual cell matches, the viewer shows complete rows in their original table structure.
 
 ## Features
 
@@ -50,7 +56,7 @@ Both tools share the same feature set:
 Visit the hosted version: **https://expandyourself.github.io/csv-viewer/**
 
 ### Option 2: Download
-1. Download [`csv-viewer.html`](csv-viewer.html) or [`xlsx-viewer.html`](xlsx-viewer.html)
+1. Download the file you need: [`csv-viewer.html`](csv-viewer.html), [`xlsx-viewer.html`](xlsx-viewer.html), or [`json-viewer.html`](json-viewer.html)
 2. Open it in any modern browser
 3. Load your files and start browsing
 
