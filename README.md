@@ -9,7 +9,7 @@ Browser-based viewer for CSV, TSV, Excel, and JSON files with inline row filteri
 ### CSV / TSV Viewer
 View CSV and TSV files as a full table with inline row filtering.
 
-- **Configurable delimiter** — comma, semicolon, or tab; auto-detects tab for `.tsv` files
+- **Configurable delimiter** — comma, semicolon, or tab; defaults to auto-detect (samples the first 10 lines to pick the most consistent delimiter)
 
 ### XLSX Viewer
 View Excel files (.xlsx, .xls, .xlsm, .xlsb, .ods). Powered by [SheetJS](https://sheetjs.com/).
