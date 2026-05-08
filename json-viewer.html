@@ -1099,11 +1099,14 @@
         if (node.children) {
           const toggle = document.createElement("button");
           toggle.className = "tree-toggle";
+          toggle.type = "button";
           toggle.textContent = isExpanded ? "\u25BC" : "\u25BA";
           toggle.addEventListener("click", () => {
             treeExpand[path] = !userExpanded;
+            const scrollY = window.scrollY;
             const existing = document.getElementById(`file-view-${fileIndex}`);
             if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
+            window.scrollTo({ top: scrollY, behavior: "instant" });
           });
           keyTd.appendChild(toggle);
         } else {
