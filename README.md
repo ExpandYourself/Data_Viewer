@@ -58,11 +58,13 @@ Both tools share the same feature set:
 Visit the hosted version: **https://expandyourself.github.io/csv-viewer/**
 
 ### Option 2: Download
-1. Download the file you need: [`csv-viewer.html`](csv-viewer.html), [`xlsx-viewer.html`](xlsx-viewer.html), or [`json-viewer.html`](json-viewer.html)
+1. Download [`index.html`](index.html)
 2. Open it in any modern browser
 3. Load your files and start browsing
 
-No install, no dependencies, no build step.
+No install, no dependencies, no build step. Format is auto-detected from the file extension — just open any CSV, TSV, XLSX, or JSON file directly.
+
+The individual viewers ([`csv-viewer.html`](csv-viewer.html), [`xlsx-viewer.html`](xlsx-viewer.html), [`json-viewer.html`](json-viewer.html)) remain available for standalone use.
 
 ## Filter Modes
 
