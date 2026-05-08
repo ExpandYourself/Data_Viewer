@@ -619,8 +619,9 @@
         <div class="menu-footer">
           <div class="option-group">
             <select id="delimiterSelect" aria-label="Delimiter">
+              <option value="auto" selected>Delimiter: Auto-detect</option>
               <option value=",">Delimiter: Comma (,)</option>
-              <option value=";" selected>Delimiter: Semicolon (;)</option>
+              <option value=";">Delimiter: Semicolon (;)</option>
               <option value="&#9;">Delimiter: Tab (TSV)</option>
             </select>
           </div>
@@ -743,8 +744,8 @@
           if (entry.type !== "csv") continue;
           try {
             const ext = entry.fileName.toLowerCase().split(".").pop();
-            const delim = ext === "tsv" ? "\t" : delimiterSelect.value;
             const text = await entry.file.text();
+            const delim = ext === "tsv" ? "\t" : (delimiterSelect.value === "auto" ? detectDelimiter(text) : delimiterSelect.value);
             const parsed = parseCsv(text, delim);
             entry.headers = parsed.headers;
             entry.rows = parsed.rows;
@@ -835,8 +836,8 @@
               const parsed = parseJson(text);
               loadedEntries.push({ file, fileName: file.name, type: "json", selected: true, headers: parsed.headers, rows: parsed.rows });
             } else {
-              const delim = ext === "tsv" ? "\t" : delimiterSelect.value;
               const text = await file.text();
+              const delim = ext === "tsv" ? "\t" : (delimiterSelect.value === "auto" ? detectDelimiter(text) : delimiterSelect.value);
               const parsed = parseCsv(text, delim);
               loadedEntries.push({ file, fileName: file.name, type: "csv", selected: true, headers: parsed.headers, rows: parsed.rows });
             }
@@ -844,9 +845,6 @@
             parseErrorMessage = `Could not parse "${file.name}": ${err.message}`;
           }
         }
-
-        const allTsv = loadedEntries.length > 0 && loadedEntries.filter((e) => e.type === "csv").every((e) => e.fileName.toLowerCase().endsWith(".tsv"));
-        if (allTsv) delimiterSelect.value = "\t";
 
         initEntryState();
         renderFileMenu();
@@ -878,6 +876,30 @@
       }
 
       // ─── CSV parsing ─────────────────────────────────────────────────────────────
+
+      function detectDelimiter(text) {
+        const lines = text.split("\n").slice(0, 10).filter((l) => l.trim().length > 0);
+        if (!lines.length) return ",";
+        const candidates = [",", ";", "\t"];
+        const scores = candidates.map((delim) => {
+          const counts = lines.map((line) => {
+            let n = 0, inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+              const ch = line[i];
+              if (ch === '"') inQuotes = !inQuotes;
+              else if (!inQuotes && ch === delim) n++;
+            }
+            return n;
+          });
+          const nonZero = counts.filter((c) => c > 0);
+          if (!nonZero.length) return { delim, score: 0, avg: 0 };
+          const avg = nonZero.reduce((a, b) => a + b, 0) / nonZero.length;
+          const variance = nonZero.reduce((s, c) => s + (c - avg) ** 2, 0) / nonZero.length;
+          return { delim, score: avg / (1 + variance), avg };
+        });
+        scores.sort((a, b) => b.score - a.score);
+        return scores[0].avg > 0 ? scores[0].delim : ",";
+      }
 
       function parseCsv(csvText, delimiter) {
         const normalized = csvText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
