@@ -521,6 +521,41 @@
         text-decoration: underline;
       }
 
+      .drop-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(34, 4, 8, 0.88);
+        border: 3px dashed var(--accent-2);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+      }
+
+      .drop-overlay.visible {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .drop-overlay-content {
+        text-align: center;
+        padding: 32px;
+      }
+
+      .drop-overlay-content strong {
+        display: block;
+        font-size: 1.25rem;
+        margin-bottom: 8px;
+      }
+
+      .drop-overlay-content span {
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
       @media (max-width: 900px) {
         .control-row {
           grid-template-columns: 1fr;
@@ -540,7 +575,7 @@
     <main class="app">
       <section class="card">
         <h1>Data Viewer</h1>
-        <p>Load CSV, TSV, Excel, and JSON files — format auto-detected by extension. Browse and filter rows inline.</p>
+        <p>Load CSV, TSV, Excel, and JSON files — select or drag &amp; drop. Format auto-detected by extension. Browse and filter rows inline.</p>
       </section>
 
       <section class="card controls">
@@ -612,7 +647,7 @@
             </div>
           </div>
           <div id="fileList" class="file-list">
-            <div class="hint">No files loaded yet.</div>
+            <div class="hint">No files loaded yet. Select files above or drag &amp; drop them anywhere on the page.</div>
           </div>
         </div>
 
@@ -646,6 +681,13 @@
 
       <footer id="appFooter" class="page-footer"></footer>
     </main>
+
+    <div id="dropOverlay" class="drop-overlay" aria-hidden="true">
+      <div class="drop-overlay-content">
+        <strong>Drop files to load</strong>
+        <span>CSV, TSV, Excel, or JSON</span>
+      </div>
+    </div>
 
     <script>
       const fileInput = document.getElementById("fileInput");
@@ -684,6 +726,8 @@
       fileInput.addEventListener("change", async (e) => {
         await loadFiles(Array.from(e.target.files || []));
       });
+
+      initDragAndDrop();
 
       filterInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
@@ -772,6 +816,64 @@
 
       const XLSX_EXTS = ["xlsx", "xls", "xlsm", "xlsb", "ods"];
       const JSON_EXTS = ["json", "ndjson", "jsonl"];
+      const SUPPORTED_FILE_EXTS = ["csv", "tsv", ...XLSX_EXTS, ...JSON_EXTS];
+
+      function isFileDrag(event) {
+        return [...(event.dataTransfer?.types || [])].includes("Files");
+      }
+
+      function filterSupportedFiles(files) {
+        return files.filter((file) => {
+          const ext = file.name.toLowerCase().split(".").pop();
+          return SUPPORTED_FILE_EXTS.includes(ext);
+        });
+      }
+
+      function initDragAndDrop() {
+        const dropOverlay = document.getElementById("dropOverlay");
+
+        function showDropOverlay() {
+          dropOverlay.classList.add("visible");
+          dropOverlay.setAttribute("aria-hidden", "false");
+        }
+
+        function hideDropOverlay() {
+          dropOverlay.classList.remove("visible");
+          dropOverlay.setAttribute("aria-hidden", "true");
+        }
+
+        document.addEventListener("dragenter", (event) => {
+          if (!isFileDrag(event)) return;
+          event.preventDefault();
+          showDropOverlay();
+        });
+
+        document.addEventListener("dragover", (event) => {
+          if (!isFileDrag(event)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        });
+
+        document.addEventListener("dragleave", (event) => {
+          if (!isFileDrag(event)) return;
+          if (event.relatedTarget === null) hideDropOverlay();
+        });
+
+        document.addEventListener("drop", async (event) => {
+          if (!isFileDrag(event)) return;
+          event.preventDefault();
+          hideDropOverlay();
+
+          const files = filterSupportedFiles(Array.from(event.dataTransfer.files || []));
+          if (files.length === 0) {
+            parseErrorMessage = "No supported files found. Use CSV, TSV, Excel, or JSON.";
+            updateStatusBar(0, parseTerms(filterInput.value.trim(), caseSensitiveCheckbox.checked));
+            return;
+          }
+
+          await loadFiles(files);
+        });
+      }
 
       let _sheetJsLoaded = false;
       let _sheetJsPromise = null;
@@ -1659,7 +1761,7 @@
 
       function renderFileMenu() {
         if (loadedEntries.length === 0) {
-          fileListEl.innerHTML = '<div class="hint">No files loaded yet.</div>';
+          fileListEl.innerHTML = '<div class="hint">No files loaded yet. Select files above or drag &amp; drop them anywhere on the page.</div>';
           return;
         }
 
