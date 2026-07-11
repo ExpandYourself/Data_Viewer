@@ -1518,6 +1518,15 @@
           treePag.className = "pagination";
           const treeLG = document.createElement("div");
           treeLG.className = "pagination-group";
+          const treeFirst = document.createElement("button");
+          treeFirst.type = "button";
+          treeFirst.textContent = "First";
+          treeFirst.disabled = treePage <= 1;
+          treeFirst.addEventListener("click", () => {
+            pageState[fileIndex] = 1;
+            const existing = document.getElementById(`file-view-${fileIndex}`);
+            if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
+          });
           const treePrev = document.createElement("button");
           treePrev.type = "button";
           treePrev.textContent = "Previous";
@@ -1536,10 +1545,19 @@
             const existing = document.getElementById(`file-view-${fileIndex}`);
             if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
           });
+          const treeLast = document.createElement("button");
+          treeLast.type = "button";
+          treeLast.textContent = "Last";
+          treeLast.disabled = treePage >= treeTotalPages;
+          treeLast.addEventListener("click", () => {
+            pageState[fileIndex] = treeTotalPages;
+            const existing = document.getElementById(`file-view-${fileIndex}`);
+            if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
+          });
           const treePageInfo = document.createElement("span");
           treePageInfo.className = "pagination-info";
           treePageInfo.textContent = `Page ${treePage} / ${treeTotalPages}`;
-          treeLG.append(treePrev, treeNext, treePageInfo);
+          treeLG.append(treeFirst, treePrev, treeNext, treeLast, treePageInfo);
           const treeRG = document.createElement("div");
           treeRG.className = "pagination-group";
           const treeRange = document.createElement("span");
@@ -1717,6 +1735,16 @@
         const leftGroup = document.createElement("div");
         leftGroup.className = "pagination-group";
 
+        const firstBtn = document.createElement("button");
+        firstBtn.type = "button";
+        firstBtn.textContent = "First";
+        firstBtn.disabled = currentPage <= 1;
+        firstBtn.addEventListener("click", () => {
+          pageState[fileIndex] = 1;
+          const existing = document.getElementById(`file-view-${fileIndex}`);
+          if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
+        });
+
         const prevBtn = document.createElement("button");
         prevBtn.type = "button";
         prevBtn.textContent = "Previous";
@@ -1737,11 +1765,21 @@
           if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
         });
 
+        const lastBtn = document.createElement("button");
+        lastBtn.type = "button";
+        lastBtn.textContent = "Last";
+        lastBtn.disabled = currentPage >= totalPages;
+        lastBtn.addEventListener("click", () => {
+          pageState[fileIndex] = totalPages;
+          const existing = document.getElementById(`file-view-${fileIndex}`);
+          if (existing) existing.replaceWith(buildFileViewCard(entry, fileIndex));
+        });
+
         const pageInfoSpan = document.createElement("span");
         pageInfoSpan.className = "pagination-info";
         pageInfoSpan.textContent = `Page ${currentPage} / ${totalPages}`;
 
-        leftGroup.append(prevBtn, nextBtn, pageInfoSpan);
+        leftGroup.append(firstBtn, prevBtn, nextBtn, lastBtn, pageInfoSpan);
 
         const rightGroup = document.createElement("div");
         rightGroup.className = "pagination-group";
