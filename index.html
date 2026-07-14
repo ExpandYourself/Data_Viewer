@@ -295,6 +295,35 @@
         color: #ffe082;
       }
 
+      .csv-preamble {
+        padding: 8px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel-2);
+        font-size: 0.82rem;
+        color: var(--muted);
+      }
+
+      .csv-preamble summary {
+        cursor: pointer;
+        color: var(--text);
+        user-select: none;
+      }
+
+      .csv-preamble pre {
+        margin: 8px 0 0;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: var(--panel-3);
+        border: 1px solid var(--border);
+        overflow: auto;
+        max-height: 140px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.78rem;
+        line-height: 1.45;
+      }
+
       /* Table */
 
       .table-container {
@@ -789,10 +818,12 @@
           try {
             const ext = entry.fileName.toLowerCase().split(".").pop();
             const text = await entry.file.text();
-            const delim = ext === "tsv" ? "\t" : (delimiterSelect.value === "auto" ? detectDelimiter(text) : delimiterSelect.value);
+            const delim = ext === "tsv" ? "\t" : (delimiterSelect.value === "auto" ? "auto" : delimiterSelect.value);
             const parsed = parseCsv(text, delim);
             entry.headers = parsed.headers;
             entry.rows = parsed.rows;
+            entry.preambleLines = parsed.preambleLines;
+            entry.dataLineStart = parsed.dataLineStart;
             pageState[i] = 1;
           } catch (err) {
             parseErrorMessage = `Could not parse "${entry.fileName}": ${err.message}`;
@@ -939,9 +970,18 @@
               loadedEntries.push({ file, fileName: file.name, type: "json", selected: true, headers: parsed.headers, rows: parsed.rows });
             } else {
               const text = await file.text();
-              const delim = ext === "tsv" ? "\t" : (delimiterSelect.value === "auto" ? detectDelimiter(text) : delimiterSelect.value);
+              const delim = ext === "tsv" ? "\t" : (delimiterSelect.value === "auto" ? "auto" : delimiterSelect.value);
               const parsed = parseCsv(text, delim);
-              loadedEntries.push({ file, fileName: file.name, type: "csv", selected: true, headers: parsed.headers, rows: parsed.rows });
+              loadedEntries.push({
+                file,
+                fileName: file.name,
+                type: "csv",
+                selected: true,
+                headers: parsed.headers,
+                rows: parsed.rows,
+                preambleLines: parsed.preambleLines,
+                dataLineStart: parsed.dataLineStart,
+              });
             }
           } catch (err) {
             parseErrorMessage = `Could not parse "${file.name}": ${err.message}`;
@@ -979,44 +1019,149 @@
 
       // ─── CSV parsing ─────────────────────────────────────────────────────────────
 
-      function detectDelimiter(text) {
-        const lines = text.split("\n").slice(0, 10).filter((l) => l.trim().length > 0);
-        if (!lines.length) return ",";
-        const candidates = [",", ";", "\t"];
-        const scores = candidates.map((delim) => {
-          const counts = lines.map((line) => {
-            let n = 0, inQuotes = false;
-            for (let i = 0; i < line.length; i++) {
-              const ch = line[i];
-              if (ch === '"') inQuotes = !inQuotes;
-              else if (!inQuotes && ch === delim) n++;
-            }
-            return n;
-          });
-          const nonZero = counts.filter((c) => c > 0);
-          if (!nonZero.length) return { delim, score: 0, avg: 0 };
-          const avg = nonZero.reduce((a, b) => a + b, 0) / nonZero.length;
-          const variance = nonZero.reduce((s, c) => s + (c - avg) ** 2, 0) / nonZero.length;
-          return { delim, score: avg / (1 + variance), avg };
+      const CSV_DELIMITER_CANDIDATES = [",", ";", "\t"];
+
+      function normalizeCsvText(text) {
+        return text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      }
+
+      function countCsvFields(line, delimiter) {
+        if (!line.trim()) return 0;
+        return splitCsvLine(line, delimiter).length;
+      }
+
+      function makeUniqueHeaders(rawHeaders) {
+        const seen = new Map();
+        return rawHeaders.map((header, index) => {
+          const trimmed = header.trim();
+          const base = trimmed.length > 0 ? trimmed : `Column ${index + 1}`;
+          const count = seen.get(base) ?? 0;
+          seen.set(base, count + 1);
+          return count === 0 ? base : `${base} (${count + 1})`;
         });
-        scores.sort((a, b) => b.score - a.score);
-        return scores[0].avg > 0 ? scores[0].delim : ",";
+      }
+
+      function analyzeCsvStructure(allLines, forcedDelimiter = null) {
+        const nonEmpty = [];
+        for (let i = 0; i < allLines.length; i++) {
+          if (allLines[i].trim().length > 0) {
+            nonEmpty.push({ line: allLines[i], sourceIndex: i });
+          }
+        }
+
+        if (!nonEmpty.length) {
+          return {
+            delimiter: forcedDelimiter || ",",
+            headerIndex: 0,
+            headerSourceIndex: 0,
+            preambleLines: [],
+            dataLineStart: 2,
+          };
+        }
+
+        const candidates = forcedDelimiter ? [forcedDelimiter] : CSV_DELIMITER_CANDIDATES;
+        let best = null;
+
+        for (const delimiter of candidates) {
+          const fieldCounts = nonEmpty.map((entry) => countCsvFields(entry.line, delimiter));
+          const countFrequency = new Map();
+
+          fieldCounts.forEach((count) => {
+            if (count >= 2) {
+              countFrequency.set(count, (countFrequency.get(count) || 0) + 1);
+            }
+          });
+
+          if (!countFrequency.size) continue;
+
+          let dominantCount = 0;
+          let dominantFrequency = 0;
+          for (const [count, frequency] of countFrequency) {
+            if (
+              frequency > dominantFrequency ||
+              (frequency === dominantFrequency && count > dominantCount)
+            ) {
+              dominantCount = count;
+              dominantFrequency = frequency;
+            }
+          }
+
+          for (let i = 0; i < nonEmpty.length; i++) {
+            if (fieldCounts[i] !== dominantCount) continue;
+
+            let matchingRows = 0;
+            for (let j = i; j < nonEmpty.length; j++) {
+              if (fieldCounts[j] === dominantCount) matchingRows++;
+            }
+
+            if (matchingRows < 2) continue;
+
+            const score = matchingRows * 1000 + dominantCount * 10 + dominantFrequency;
+            if (!best || score > best.score) {
+              best = {
+                delimiter,
+                headerIndex: i,
+                headerSourceIndex: nonEmpty[i].sourceIndex,
+                dominantCount,
+                score,
+              };
+            }
+            break;
+          }
+        }
+
+        if (!best) {
+          const delimiter = forcedDelimiter || ",";
+          return {
+            delimiter,
+            headerIndex: 0,
+            headerSourceIndex: nonEmpty[0].sourceIndex,
+            preambleLines: [],
+            dataLineStart: nonEmpty[0].sourceIndex + 2,
+          };
+        }
+
+        const preambleLines = nonEmpty.slice(0, best.headerIndex).map((entry) => entry.line);
+        return {
+          delimiter: best.delimiter,
+          headerIndex: best.headerIndex,
+          headerSourceIndex: best.headerSourceIndex,
+          preambleLines,
+          dataLineStart: best.headerSourceIndex + 2,
+        };
+      }
+
+      function detectDelimiter(text) {
+        const allLines = normalizeCsvText(text).split("\n");
+        return analyzeCsvStructure(allLines).delimiter;
       }
 
       function parseCsv(csvText, delimiter) {
-        const normalized = csvText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-        const lines = normalized.split("\n").filter((l) => l.length > 0);
+        const allLines = normalizeCsvText(csvText).split("\n");
+        const structure = analyzeCsvStructure(allLines, delimiter === "auto" ? null : delimiter);
+        const nonEmpty = [];
 
-        if (lines.length === 0) return { headers: [], rows: [] };
+        for (let i = 0; i < allLines.length; i++) {
+          if (allLines[i].trim().length > 0) {
+            nonEmpty.push(allLines[i]);
+          }
+        }
 
-        const headers = splitCsvLine(lines[0], delimiter).map((h, i) => {
-          const trimmed = h.trim();
-          return trimmed.length > 0 ? trimmed : `Column ${i + 1}`;
-        });
+        if (!nonEmpty.length) {
+          return {
+            headers: [],
+            rows: [],
+            preambleLines: [],
+            dataLineStart: 2,
+            detectedDelimiter: structure.delimiter,
+          };
+        }
 
+        const headers = makeUniqueHeaders(splitCsvLine(nonEmpty[structure.headerIndex], structure.delimiter));
         const rows = [];
-        for (let li = 1; li < lines.length; li++) {
-          const cells = splitCsvLine(lines[li], delimiter);
+
+        for (let li = structure.headerIndex + 1; li < nonEmpty.length; li++) {
+          const cells = splitCsvLine(nonEmpty[li], structure.delimiter);
           const row = {};
           for (let ci = 0; ci < headers.length; ci++) {
             row[headers[ci]] = cells[ci] ?? "";
@@ -1024,7 +1169,13 @@
           rows.push(row);
         }
 
-        return { headers, rows };
+        return {
+          headers,
+          rows,
+          preambleLines: structure.preambleLines,
+          dataLineStart: structure.dataLineStart,
+          detectedDelimiter: structure.delimiter,
+        };
       }
 
       function splitCsvLine(line, delimiter) {
@@ -1629,6 +1780,18 @@
 
         header.appendChild(wrapBtn);
         card.appendChild(header);
+
+        if (entry.preambleLines?.length) {
+          const preamble = document.createElement("details");
+          preamble.className = "csv-preamble";
+          const summary = document.createElement("summary");
+          summary.textContent = `${entry.preambleLines.length} header line${entry.preambleLines.length === 1 ? "" : "s"} skipped before table`;
+          const pre = document.createElement("pre");
+          pre.textContent = entry.preambleLines.join("\n");
+          preamble.append(summary, pre);
+          card.appendChild(preamble);
+        }
+
         card.id = `file-view-${fileIndex}`;
 
         const tableContainer = document.createElement("div");
@@ -1707,7 +1870,7 @@
 
             const rownumTd = document.createElement("td");
             rownumTd.className = "col-rownum";
-            rownumTd.textContent = originalIndex + 2;
+            rownumTd.textContent = (entry.dataLineStart ?? 2) + originalIndex;
             tr.appendChild(rownumTd);
 
             entry.headers.forEach((colHeader, colIndex) => {
